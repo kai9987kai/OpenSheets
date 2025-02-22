@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enhanced Spreadsheet Application</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Modern CSS Styling */
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        #spreadsheet {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Ribbon Bar Styling */
+        #ribbon {
+            background-color: #f0f0f0;
+            border-bottom: 1px solid #ccc;
+            padding: 5px;
+        }
+
+        #tabs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tab {
+            padding: 5px 15px;
+            cursor: pointer;
+            background-color: #e0e0e0;
+            border: 1px solid #ccc;
+            border-radius: 3px 3px 0 0;
+            font-size: 14px;
+        }
+
+        .tab.active {
+            background-color: #fff;
+            border-bottom: none;
+        }
+
+        .panel {
+            display: none;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-top: none;
+        }
+
+        .panel.active {
+            display: flex;
+            gap: 20px;
+        }
+
+        .group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .group span {
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .group button, .group select, .group input {
+            margin: 2px 0;
+            padding: 5px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .group input[type="color"] {
+            padding: 0;
+            width: 30px;
+            height: 25px;
+        }
+
+        /* Formula Bar Styling */
+        #formula-bar {
+            padding: 5px;
+            border-bottom: 1px solid #ccc;
+            background-color: #fff;
+            position: relative;
+        }
+
+        #formula-input {
+            width: 100%;
+            padding: 6px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+
+        #suggestions {
+            position: absolute;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            z-index: 100;
+            display: none;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        #suggestions div {
+            padding: 5px;
+            cursor: pointer;
+        }
+
+        #suggestions div:hover {
+            background-color: #f0f0f0;
+        }
+
+        /* Grid Styling */
+        #grid {
+            flex-grow: 1;
+            overflow: auto;
+            background-color: #fff;
+        }
+
+        #grid table {
+            border-collapse: collapse;
+        }
+
+        #grid th, #grid td {
+            border: 1px solid #ccc;
+            padding: 5px;
+            min-width: 80px;
+            min-height: 20px;
+            text-align: left;
+        }
+
+        #grid th {
+            background-color: #e0e0e0;
+            font-weight: bold;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        #grid td {
+            background-color: #fff;
+        }
+
+        .selected {
+            border: 2px solid #007bff;
+        }
+
+        /* Frozen Panes */
+        .frozen-row th, .frozen-row td {
+            position: sticky;
+            top: 0;
+            background-color: #e0e0e0;
+            z-index: 2;
+        }
+
+        .frozen-col {
+            position: sticky;
+            left: 0;
+            background-color: #e0e0e0;
+            z-index: 2;
+        }
+
+        /* Dark Mode */
+        body.dark-mode {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+        }
+
+        body.dark-mode #ribbon,
+        body.dark-mode #formula-bar,
+        body.dark-mode #grid th,
+        body.dark-mode #grid td {
+            background-color: #3a3a3a;
+            color: #e0e0e0;
+            border-color: #555;
+        }
+
+        body.dark-mode .tab {
+            background-color: #4a4a4a;
+        }
+
+        body.dark-mode .tab.active {
+            background-color: #3a3a3a;
+        }
+
+        body.dark-mode .panel {
+            background-color: #3a3a3a;
+        }
+    </style>
+</head>
+<body>
+    <div id="spreadsheet">
+        <!-- Ribbon Bar -->
+        <div id="ribbon">
+            <div id="tabs">
+                <button class="tab active" data-tab="home">Home</button>
+                <button class="tab" data-tab="insert">Insert</button>
+                <button class="tab" data-tab="view">View</button>
+            </div>
+            <div id="panels">
+                <div id="home" class="panel active">
+                    <div class="group">
+                        <span>Clipboard</span>
+                        <button id="cut" title="Cut selected cells">Cut</button>
+                        <button id="copy" title="Copy selected cells">Copy</button>
+                        <button id="paste" title="Paste to selected cells">Paste</button>
+                    </div>
+                    <div class="group">
+                        <span>Font</span>
+                        <button id="bold" title="Toggle bold">Bold</button>
+                        <button id="italic" title="Toggle italic">Italic</button>
+                        <button id="underline" title="Toggle underline">Underline</button>
+                        <select id="font-size" title="Font size">
+                            <option value="10">10</option>
+                            <option value="12">12</option>
+                            <option value="14">14</option>
+                            <option value="16">16</option>
+                        </select>
+                        <input type="color" id="text-color" title="Text color" value="#000000">
+                        <input type="color" id="bg-color" title="Background color" value="#ffffff">
+                    </div>
+                    <div class="group">
+                        <span>Alignment</span>
+                        <button id="align-left" title="Align left">Left</button>
+                        <button id="align-center" title="Align center">Center</button>
+                        <button id="align-right" title="Align right">Right</button>
+                    </div>
+                    <div class="group">
+                        <span>Number</span>
+                        <select id="number-format" title="Number format">
+                            <option value="general">General</option>
+                            <option value="number">Number</option>
+                            <option value="currency">Currency</option>
+                            <option value="percentage">Percentage</option>
+                        </select>
+                    </div>
+                    <div class="group">
+                        <span>Styles</span>
+                        <button id="conditional-format" title="Apply conditional formatting">Conditional Formatting</button>
+                    </div>
+                </div>
+                <div id="insert" class="panel">
+                    <div class="group">
+                        <span>Rows & Columns</span>
+                        <button id="add-row" title="Add row above selection">Add Row</button>
+                        <button id="add-col" title="Add column to the left of selection">Add Column</button>
+                    </div>
+                </div>
+                <div id="view" class="panel">
+                    <div class="group">
+                        <span>View Options</span>
+                        <button id="freeze-row" title="Freeze top row">Freeze Row</button>
+                        <button id="freeze-col" title="Freeze first column">Freeze Column</button>
+                        <button id="dark-mode" title="Toggle dark mode">Dark Mode</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Formula Bar -->
+        <div id="formula-bar">
+            <input type="text" id="formula-input" placeholder="Enter value or formula (e.g., =SUM(A1:A10))">
+            <div id="suggestions"></div>
+        </div>
+
+        <!-- Spreadsheet Grid -->
+        <div id="grid">
+            <table></table>
+        </div>
+
+        <!-- Conditional Formatting Dialog -->
+        <dialog id="conditional-format-dialog">
+            <form id="conditional-format-form">
+                <h3>Conditional Formatting</h3>
+                <label>Type:
+                    <select id="rule-type">
+                        <option value="greaterThan">Greater Than</option>
+                        <option value="lessThan">Less Than</option>
+                        <option value="equalTo">Equal To</option>
+                        <option value="contains">Contains</option>
+                    </select>
+                </label><br>
+                <label>Value: <input type="text" id="rule-value" placeholder="Enter value"></label><br>
+                <label>Background Color: <input type="color" id="rule-bg-color" value="#ffff99"></label><br>
+                <label>Text Color: <input type="color" id="rule-text-color" value="#000000"></label><br>
+                <button type="submit">Apply</button>
+                <button type="button" id="close-dialog">Close</button>
+            </form>
+        </dialog>
+    </div>
+
+    <script>
+        // Application state
+        const grid = document.querySelector('#grid table');
+        const formulaInput = document.getElementById('formula-input');
+        const suggestions = document.getElementById('suggestions');
+        const sheets = {
+            Sheet1: {
+                rows: 100,
+                cols: 26,
+                data: {},
+                conditionalFormats: []
+            }
+        };
+        let currentSheet = 'Sheet1';
+        let selectedCells = [];
+        let selectionStart = null;
+        let selectionEnd = null;
+        let clipboard = null;
+        let frozenRows = 0;
+        let frozenCols = 0;
+
+        // Common spreadsheet functions for auto-complete
+        const functionsList = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'IF'];
+
+        // Initialize grid
+        function initGrid(sheetName) {
+            grid.innerHTML = '';
+            const { rows, cols } = sheets[sheetName];
+            const headerRow = grid.createTHead().insertRow();
+            headerRow.insertCell(); // Top-left corner
+            for (let j = 0; j < cols; j++) {
+                const headerCell = headerRow.insertCell();
+                headerCell.textContent = String.fromCharCode(65 + j);
+            }
+
+            for (let i = 0; i < rows; i++) {
+                const row = grid.insertRow();
+                const rowHeader = row.insertCell();
+                rowHeader.textContent = i + 1;
+                for (let j = 0; j < cols; j++) {
+                    const cell = row.insertCell();
+                    cell.contentEditable = true;
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    updateCellDisplay(cell);
+                }
+            }
+            applyFrozenPanes();
+        }
+
+        // Update cell display based on data
+        function updateCellDisplay(cell) {
+            const key = getCellKey(cell);
+            const data = sheets[currentSheet].data[key] || {};
+            data.style = data.style || {};
+            data.format = data.format || 'general';
+            Object.assign(cell.style, data.style);
+            applyConditionalFormatting(cell);
+            cell.textContent = data.formula ? evaluateFormula(data.formula.slice(1), key) : formatValue(data.value, data.format);
+            cell.dataset.formula = data.formula || '';
+        }
+
+        // Range selection
+        grid.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'TD') {
+                if (e.shiftKey && selectionStart) {
+                    selectionEnd = e.target;
+                } else {
+                    selectionStart = e.target;
+                    selectionEnd = e.target;
+                    formulaInput.value = sheets[currentSheet].data[getCellKey(selectionStart)]?.formula || 
+                                       sheets[currentSheet].data[getCellKey(selectionStart)]?.value || '';
+                }
+                selectRange();
+            }
+        });
+
+        grid.addEventListener('mousemove', (e) => {
+            if (selectionStart && e.target.tagName === 'TD') {
+                selectionEnd = e.target;
+                selectRange();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            selectionStart = null;
+        });
+
+        function selectRange() {
+            grid.querySelectorAll('td.selected').forEach(cell => cell.classList.remove('selected'));
+            const startRow = Math.min(parseInt(selectionStart.dataset.row), parseInt(selectionEnd.dataset.row));
+            const endRow = Math.max(parseInt(selectionStart.dataset.row), parseInt(selectionEnd.dataset.row));
+            const startCol = Math.min(parseInt(selectionStart.dataset.col), parseInt(selectionEnd.dataset.col));
+            const endCol = Math.max(parseInt(selectionStart.dataset.col), parseInt(selectionEnd.dataset.col));
+            for (let row = startRow; row <= endRow; row++) {
+                for (let col = startCol; col <= endCol; col++) {
+                    const cell = grid.rows[row + 1].cells[col + 1];
+                    cell.classList.add('selected');
+                }
+            }
+            selectedCells = Array.from(grid.querySelectorAll('td.selected'));
+        }
+
+        // Cell editing
+        grid.addEventListener('focus', (e) => {
+            if (e.target.tagName === 'TD') {
+                const cell = e.target;
+                const key = getCellKey(cell);
+                const data = sheets[currentSheet].data[key] || {};
+                cell.textContent = data.formula || data.value || '';
+                formulaInput.value = cell.textContent;
+                selectRange(); // Refresh selection
+            }
+        }, true);
+
+        grid.addEventListener('blur', (e) => {
+            if (e.target.tagName === 'TD') {
+                const cell = e.target;
+                const content = cell.textContent.trim();
+                const key = getCellKey(cell);
+                const data = sheets[currentSheet].data[key] || { style: {} };
+                if (content.startsWith('=')) {
+                    data.formula = content;
+                    data.value = evaluateFormula(content.slice(1), key);
+                } else {
+                    delete data.formula;
+                    data.value = isNaN(content) ? content : parseFloat(content);
+                }
+                sheets[currentSheet].data[key] = data;
+                updateCellDisplay(cell);
+            }
+        }, true);
+
+        // Formula bar input
+        formulaInput.addEventListener('input', (e) => {
+            if (selectedCells.length > 0) {
+                const cell = selectedCells[0];
+                cell.textContent = e.target.value;
+                cell.focus();
+                showSuggestions(e.target.value);
+            }
+        });
+
+        formulaInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && selectedCells.length > 0) {
+                const cell = selectedCells[0];
+                cell.focus();
+                cell.blur();
+                suggestions.style.display = 'none';
+            } else if (e.key === 'ArrowDown' && suggestions.children.length > 0) {
+                e.preventDefault();
+                suggestions.children[0].focus();
+            }
+        });
+
+        // Formula auto-complete
+        function showSuggestions(input) {
+            suggestions.innerHTML = '';
+            if (input.startsWith('=')) {
+                const query = input.slice(1).toUpperCase();
+                const matches = functionsList.filter(f => f.startsWith(query));
+                matches.forEach(func => {
+                    const div = document.createElement('div');
+                    div.textContent = func;
+                    div.tabIndex = 0;
+                    div.addEventListener('click', () => {
+                        formulaInput.value = `=${func}(`;
+                        suggestions.style.display = 'none';
+                        formulaInput.focus();
+                    });
+                    div.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') div.click();
+                        if (e.key === 'ArrowDown' && div.nextSibling) div.nextSibling.focus();
+                        if (e.key === 'ArrowUp') div.previousSibling ? div.previousSibling.focus() : formulaInput.focus();
+                    });
+                    suggestions.appendChild(div);
+                });
+                if (matches.length > 0) {
+                    suggestions.style.display = 'block';
+                    suggestions.style.left = `${formulaInput.offsetLeft}px`;
+                    suggestions.style.top = `${formulaInput.offsetTop + formulaInput.offsetHeight}px`;
+                } else {
+                    suggestions.style.display = 'none';
+                }
+            } else {
+                suggestions.style.display = 'none';
+            }
+        }
+
+        // Ribbon bar tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Formatting functions
+        function applyStyle(property, value) {
+            selectedCells.forEach(cell => {
+                const key = getCellKey(cell);
+                const data = sheets[currentSheet].data[key] || { style: {} };
+                data.style[property] = value;
+                cell.style[property] = value;
+                sheets[currentSheet].data[key] = data;
+            });
+        }
+
+        document.getElementById('bold').addEventListener('click', () => {
+            applyStyle('fontWeight', selectedCells[0].style.fontWeight === 'bold' ? 'normal' : 'bold');
+        });
+        document.getElementById('italic').addEventListener('click', () => {
+            applyStyle('fontStyle', selectedCells[0].style.fontStyle === 'italic' ? 'normal' : 'italic');
+        });
+        document.getElementById('underline').addEventListener('click', () => {
+            applyStyle('textDecoration', selectedCells[0].style.textDecoration === 'underline' ? 'none' : 'underline');
+        });
+        document.getElementById('font-size').addEventListener('change', (e) => {
+            applyStyle('fontSize', `${e.target.value}px`);
+        });
+        document.getElementById('text-color').addEventListener('input', (e) => {
+            applyStyle('color', e.target.value);
+        });
+        document.getElementById('bg-color').addEventListener('input', (e) => {
+            applyStyle('backgroundColor', e.target.value);
+        });
+        document.getElementById('align-left').addEventListener('click', () => {
+            applyStyle('textAlign', 'left');
+        });
+        document.getElementById('align-center').addEventListener('click', () => {
+            applyStyle('textAlign', 'center');
+        });
+        document.getElementById('align-right').addEventListener('click', () => {
+            applyStyle('textAlign', 'right');
+        });
+        document.getElementById('number-format').addEventListener('change', (e) => {
+            const format = e.target.value;
+            selectedCells.forEach(cell => {
+                const key = getCellKey(cell);
+                const data = sheets[currentSheet].data[key] || { style: {} };
+                data.format = format;
+                updateCellDisplay(cell);
+            });
+        });
+
+        // Clipboard operations
+        document.getElementById('cut').addEventListener('click', () => {
+            clipboard = selectedCells.map(cell => ({
+                key: getCellKey(cell),
+                data: { ...sheets[currentSheet].data[getCellKey(cell)] }
+            }));
+            selectedCells.forEach(cell => {
+                const key = getCellKey(cell);
+                delete sheets[currentSheet].data[key];
+                cell.textContent = '';
+                cell.style = {};
+            });
+        });
+
+        document.getElementById('copy').addEventListener('click', () => {
+            clipboard = selectedCells.map(cell => ({
+                key: getCellKey(cell),
+                data: { ...sheets[currentSheet].data[getCellKey(cell)] }
+            }));
+        });
+
+        document.getElementById('paste').addEventListener('click', () => {
+            if (clipboard && selectedCells.length > 0) {
+                const baseRow = parseInt(selectedCells[0].dataset.row);
+                const baseCol = parseInt(selectedCells[0].dataset.col);
+                clipboard.forEach((item, index) => {
+                    const rowOffset = Math.floor(index / (selectionEnd.dataset.col - selectionStart.dataset.col + 1));
+                    const colOffset = index % (selectionEnd.dataset.col - selectionStart.dataset.col + 1);
+                    const newRow = baseRow + rowOffset;
+                    const newCol = baseCol + colOffset;
+                    if (newRow < sheets[currentSheet].rows && newCol < sheets[currentSheet].cols) {
+                        const cell = grid.rows[newRow + 1].cells[newCol + 1];
+                        const key = getCellKey(cell);
+                        sheets[currentSheet].data[key] = { ...item.data };
+                        updateCellDisplay(cell);
+                    }
+                });
+            }
+        });
+
+        // Insert operations
+        document.getElementById('add-row').addEventListener('click', () => {
+            const rowIndex = selectedCells.length > 0 ? parseInt(selectedCells[0].dataset.row) : 0;
+            sheets[currentSheet].rows++;
+            const newRow = grid.insertRow(rowIndex + 1);
+            newRow.insertCell().textContent = rowIndex + 1;
+            for (let j = 0; j < sheets[currentSheet].cols; j++) {
+                const cell = newRow.insertCell();
+                cell.contentEditable = true;
+                cell.dataset.row = rowIndex;
+                cell.dataset.col = j;
+            }
+            for (let i = rowIndex + 1; i < sheets[currentSheet].rows; i++) {
+                const row = grid.rows[i + 1];
+                row.cells[0].textContent = i + 1;
+                for (let j = 1; j < row.cells.length; j++) {
+                    row.cells[j].dataset.row = i;
+                }
+            }
+            applyFrozenPanes();
+        });
+
+        document.getElementById('add-col').addEventListener('click', () => {
+            const colIndex = selectedCells.length > 0 ? parseInt(selectedCells[0].dataset.col) : 0;
+            sheets[currentSheet].cols++;
+            grid.rows[0].insertCell(colIndex + 1).textContent = String.fromCharCode(65 + colIndex);
+            for (let i = 1; i <= sheets[currentSheet].rows; i++) {
+                const cell = grid.rows[i].insertCell(colIndex + 1);
+                cell.contentEditable = true;
+                cell.dataset.row = i - 1;
+                cell.dataset.col = colIndex;
+            }
+            for (let j = colIndex + 1; j < sheets[currentSheet].cols; j++) {
+                grid.rows[0].cells[j + 1].textContent = String.fromCharCode(65 + j);
+                for (let i = 1; i <= sheets[currentSheet].rows; i++) {
+                    grid.rows[i].cells[j + 1].dataset.col = j;
+                }
+            }
+            applyFrozenPanes();
+        });
+
+        // View options
+        document.getElementById('freeze-row').addEventListener('click', () => {
+            frozenRows = frozenRows === 1 ? 0 : 1;
+            applyFrozenPanes();
+        });
+
+        document.getElementById('freeze-col').addEventListener('click', () => {
+            frozenCols = frozenCols === 1 ? 0 : 1;
+            applyFrozenPanes();
+        });
+
+        function applyFrozenPanes() {
+            grid.querySelectorAll('.frozen-row, .frozen-col').forEach(cell => {
+                cell.classList.remove('frozen-row', 'frozen-col');
+                cell.style.position = '';
+                cell.style.top = '';
+                cell.style.left = '';
+            });
+            if (frozenRows > 0) {
+                for (let j = 0; j <= sheets[currentSheet].cols; j++) {
+                    const cell = grid.rows[1].cells[j];
+                    cell.classList.add('frozen-row');
+                }
+            }
+            if (frozenCols > 0) {
+                for (let i = 0; i <= sheets[currentSheet].rows; i++) {
+                    const cell = grid.rows[i].cells[1];
+                    cell.classList.add('frozen-col');
+                }
+            }
+        }
+
+        document.getElementById('dark-mode').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+        });
+
+        // Conditional formatting
+        document.getElementById('conditional-format').addEventListener('click', () => {
+            document.getElementById('conditional-format-dialog').showModal();
+        });
+
+        document.getElementById('conditional-format-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const rule = {
+                range: getSelectedRange(),
+                condition: document.getElementById('rule-type').value,
+                value: document.getElementById('rule-value').value,
+                style: {
+                    backgroundColor: document.getElementById('rule-bg-color').value,
+                    color: document.getElementById('rule-text-color').value
+                }
+            };
+            sheets[currentSheet].conditionalFormats.push(rule);
+            applyConditionalFormattingToRange(rule.range);
+            document.getElementById('conditional-format-dialog').close();
+        });
+
+        document.getElementById('close-dialog').addEventListener('click', () => {
+            document.getElementById('conditional-format-dialog').close();
+        });
+
+        function getSelectedRange() {
+            if (selectedCells.length === 0) return 'A1';
+            const startRow = Math.min(...selectedCells.map(c => parseInt(c.dataset.row)));
+            const endRow = Math.max(...selectedCells.map(c => parseInt(c.dataset.row)));
+            const startCol = Math.min(...selectedCells.map(c => parseInt(c.dataset.col)));
+            const endCol = Math.max(...selectedCells.map(c => parseInt(c.dataset.col)));
+            return `${String.fromCharCode(65 + startCol)}${startRow + 1}:${String.fromCharCode(65 + endCol)}${endRow + 1}`;
+        }
+
+        function applyConditionalFormatting(cell) {
+            const key = getCellKey(cell);
+            const data = sheets[currentSheet].data[key] || {};
+            sheets[currentSheet].conditionalFormats.forEach(rule => {
+                const [start, end] = rule.range.split(':');
+                const startCol = start.charCodeAt(0) - 65;
+                const startRow = parseInt(start.slice(1)) - 1;
+                const endCol = end.charCodeAt(0) - 65;
+                const endRow = parseInt(end.slice(1)) - 1;
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                if (row >= startRow && row <= endRow && col >= startCol && col <= endCol) {
+                    const value = data.value || cell.textContent;
+                    if (checkCondition(value, rule.condition, rule.value)) {
+                        Object.assign(cell.style, rule.style);
+                    }
+                }
+            });
+        }
+
+        function applyConditionalFormattingToRange(range) {
+            const [start, end] = range.split(':');
+            const startCol = start.charCodeAt(0) - 65;
+            const startRow = parseInt(start.slice(1)) - 1;
+            const endCol = end.charCodeAt(0) - 65;
+            const endRow = parseInt(end.slice(1)) - 1;
+            for (let row = startRow; row <= endRow; row++) {
+                for (let col = startCol; col <= endCol; col++) {
+                    const cell = grid.rows[row + 1].cells[col + 1];
+                    updateCellDisplay(cell);
+                }
+            }
+        }
+
+        function checkCondition(value, condition, ruleValue) {
+            const numValue = parseFloat(value);
+            const numRuleValue = parseFloat(ruleValue);
+            switch (condition) {
+                case 'greaterThan': return !isNaN(numValue) && numValue > numRuleValue;
+                case 'lessThan': return !isNaN(numValue) && numValue < numRuleValue;
+                case 'equalTo': return value == ruleValue;
+                case 'contains': return String(value).includes(ruleValue);
+                default: return false;
+            }
+        }
+
+        // Helper functions
+        function getCellKey(cell) {
+            return `${String.fromCharCode(65 + parseInt(cell.dataset.col))}${parseInt(cell.dataset.row) + 1}`;
+        }
+
+        function formatValue(value, format) {
+            if (typeof value === 'number' && !isNaN(value)) {
+                switch (format) {
+                    case 'currency': return '$' + value.toFixed(2);
+                    case 'percentage': return (value * 100).toFixed(2) + '%';
+                    case 'number': return value.toFixed(2);
+                    default: return value.toString();
+                }
+            }
+            return value || '';
+        }
+
+        function evaluateFormula(formula, cellKey) {
+            try {
+                if (formula.startsWith('SUM(')) {
+                    const range = formula.slice(4, -1).split(':');
+                    const [start, end] = range.map(coord => {
+                        const col = coord.match(/[A-Z]/)[0].charCodeAt(0) - 65;
+                        const row = parseInt(coord.match(/\d+/)?.[0]) - 1;
+                        return { col, row };
+                    });
+                    let sum = 0;
+                    for (let row = Math.min(start.row, end.row); row <= Math.max(start.row, end.row); row++) {
+                        for (let col = Math.min(start.col, end.col); col <= Math.max(start.col, end.col); col++) {
+                            const key = `${String.fromCharCode(65 + col)}${row + 1}`;
+                            const value = sheets[currentSheet].data[key]?.value;
+                            sum += parseFloat(value) || 0;
+                        }
+                    }
+                    return sum;
+                }
+                // Add more functions as needed
+                return eval(formula.replace(/[A-Z]\d+/g, match => {
+                    const data = sheets[currentSheet].data[match];
+                    return data ? (data.value || 0) : 0;
+                }));
+            } catch (e) {
+                return '#ERROR';
+            }
+        }
+
+        // Initialize the application
+        initGrid(currentSheet);
+    </script>
+</body>
+</html>
