@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Enhanced Spreadsheet Application</title>
+    <title>Advanced Spreadsheet Application</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <style>
         /* Modern CSS Styling */
@@ -157,6 +157,10 @@
             border: 2px solid #007bff;
         }
 
+        .merged {
+            display: none;
+        }
+
         /* Frozen Panes */
         .frozen-row th, .frozen-row td {
             position: sticky;
@@ -207,6 +211,7 @@
             <div id="tabs">
                 <button class="tab active" data-tab="home">Home</button>
                 <button class="tab" data-tab="insert">Insert</button>
+                <button class="tab" data-tab="data">Data</button>
                 <button class="tab" data-tab="view">View</button>
             </div>
             <div id="panels">
@@ -247,8 +252,13 @@
                         </select>
                     </div>
                     <div class="group">
-                        <span>Styles</span>
-                        <button id="conditional-format" title="Apply conditional formatting">Conditional Formatting</button>
+                        <span>Cells</span>
+                        <button id="merge-cells" title="Merge selected cells">Merge Cells</button>
+                    </div>
+                    <div class="group">
+                        <span>Editing</span>
+                        <button id="undo" title="Undo last action">Undo</button>
+                        <button id="redo" title="Redo last undone action">Redo</button>
                     </div>
                 </div>
                 <div id="insert" class="panel">
@@ -256,6 +266,29 @@
                         <span>Rows & Columns</span>
                         <button id="add-row" title="Add row above selection">Add Row</button>
                         <button id="add-col" title="Add column to the left of selection">Add Column</button>
+                    </div>
+                </div>
+                <div id="data" class="panel">
+                    <div class="group">
+                        <span>Sort & Filter</span>
+                        <button id="sort-asc" title="Sort selected column ascending">Sort A-Z</button>
+                        <button id="sort-desc" title="Sort selected column descending">Sort Z-A</button>
+                    </div>
+                    <div class="group">
+                        <span>Data Validation</span>
+                        <select id="validation-type" title="Set validation type">
+                            <option value="none">None</option>
+                            <option value="number-range">Number Range</option>
+                            <option value="list">Dropdown List</option>
+                        </select>
+                        <input id="validation-rule" title="Validation rule (e.g., 1-100 or item1,item2)" placeholder="e.g., 1-100 or item1,item2">
+                        <button id="apply-validation" title="Apply validation to selected cells">Apply</button>
+                    </div>
+                    <div class="group">
+                        <span>File</span>
+                        <button id="export-csv" title="Export to CSV">Export CSV</button>
+                        <input type="file" id="import-csv" accept=".csv" title="Import from CSV" style="display: none;">
+                        <button id="import-btn" title="Import CSV">Import CSV</button>
                     </div>
                 </div>
                 <div id="view" class="panel">
@@ -279,26 +312,6 @@
         <div id="grid">
             <table></table>
         </div>
-
-        <!-- Conditional Formatting Dialog -->
-        <dialog id="conditional-format-dialog">
-            <form id="conditional-format-form">
-                <h3>Conditional Formatting</h3>
-                <label>Type:
-                    <select id="rule-type">
-                        <option value="greaterThan">Greater Than</option>
-                        <option value="lessThan">Less Than</option>
-                        <option value="equalTo">Equal To</option>
-                        <option value="contains">Contains</option>
-                    </select>
-                </label><br>
-                <label>Value: <input type="text" id="rule-value" placeholder="Enter value"></label><br>
-                <label>Background Color: <input type="color" id="rule-bg-color" value="#ffff99"></label><br>
-                <label>Text Color: <input type="color" id="rule-text-color" value="#000000"></label><br>
-                <button type="submit">Apply</button>
-                <button type="button" id="close-dialog">Close</button>
-            </form>
-        </dialog>
     </div>
 
     <script>
@@ -311,7 +324,10 @@
                 rows: 100,
                 cols: 26,
                 data: {},
-                conditionalFormats: []
+                merges: [],
+                validations: {}, // Validation rules per cell
+                undoStack: [],
+                redoStack: []
             }
         };
         let currentSheet = 'Sheet1';
@@ -321,6 +337,7 @@
         let clipboard = null;
         let frozenRows = 0;
         let frozenCols = 0;
+        const maxUndoSteps = 20;
 
         // Common spreadsheet functions for auto-complete
         const functionsList = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'IF'];
@@ -328,7 +345,7 @@
         // Initialize grid
         function initGrid(sheetName) {
             grid.innerHTML = '';
-            const { rows, cols } = sheets[sheetName];
+            const { rows, cols, merges } = sheets[sheetName];
             const headerRow = grid.createTHead().insertRow();
             headerRow.insertCell(); // Top-left corner
             for (let j = 0; j < cols; j++) {
@@ -348,6 +365,7 @@
                     updateCellDisplay(cell);
                 }
             }
+            applyMerges();
             applyFrozenPanes();
         }
 
@@ -356,11 +374,10 @@
             const key = getCellKey(cell);
             const data = sheets[currentSheet].data[key] || {};
             data.style = data.style || {};
-            data.format = data.format || 'general';
             Object.assign(cell.style, data.style);
-            applyConditionalFormatting(cell);
-            cell.textContent = data.formula ? evaluateFormula(data.formula.slice(1), key) : formatValue(data.value, data.format);
+            cell.textContent = data.formula ? evaluateFormula(data.formula.slice(1), key) : (data.value || '');
             cell.dataset.formula = data.formula || '';
+            applyValidationAttributes(cell);
         }
 
         // Range selection
@@ -404,7 +421,7 @@
             selectedCells = Array.from(grid.querySelectorAll('td.selected'));
         }
 
-        // Cell editing
+        // Cell editing with validation
         grid.addEventListener('focus', (e) => {
             if (e.target.tagName === 'TD') {
                 const cell = e.target;
@@ -412,7 +429,7 @@
                 const data = sheets[currentSheet].data[key] || {};
                 cell.textContent = data.formula || data.value || '';
                 formulaInput.value = cell.textContent;
-                selectRange(); // Refresh selection
+                selectRange();
             }
         }, true);
 
@@ -421,15 +438,23 @@
                 const cell = e.target;
                 const content = cell.textContent.trim();
                 const key = getCellKey(cell);
-                const data = sheets[currentSheet].data[key] || { style: {} };
+                const oldData = { ...sheets[currentSheet].data[key] };
+                const data = { style: { ...cell.style }, format: oldData.format || 'general' };
                 if (content.startsWith('=')) {
                     data.formula = content;
                     data.value = evaluateFormula(content.slice(1), key);
                 } else {
                     delete data.formula;
-                    data.value = isNaN(content) ? content : parseFloat(content);
+                    if (validateCellInput(key, content)) {
+                        data.value = isNaN(content) ? content : parseFloat(content);
+                    } else {
+                        alert('Input does not match validation rules.');
+                        cell.textContent = oldData.value || '';
+                        return;
+                    }
                 }
                 sheets[currentSheet].data[key] = data;
+                pushUndoAction({ type: 'edit', key, oldData });
                 updateCellDisplay(cell);
             }
         }, true);
@@ -502,13 +527,17 @@
 
         // Formatting functions
         function applyStyle(property, value) {
+            const actions = [];
             selectedCells.forEach(cell => {
                 const key = getCellKey(cell);
+                const oldData = { ...sheets[currentSheet].data[key] };
                 const data = sheets[currentSheet].data[key] || { style: {} };
                 data.style[property] = value;
                 cell.style[property] = value;
                 sheets[currentSheet].data[key] = data;
+                actions.push({ type: 'style', key, property, oldValue: oldData.style[property] });
             });
+            pushUndoAction(actions);
         }
 
         document.getElementById('bold').addEventListener('click', () => {
@@ -538,38 +567,168 @@
         document.getElementById('align-right').addEventListener('click', () => {
             applyStyle('textAlign', 'right');
         });
-        document.getElementById('number-format').addEventListener('change', (e) => {
-            const format = e.target.value;
+
+        // Cell merging
+        document.getElementById('merge-cells').addEventListener('click', () => {
+            if (selectedCells.length < 2) return;
+            const mergeRange = getMergeRange();
+            if (mergeRange) {
+                const { startRow, endRow, startCol, endCol } = mergeRange;
+                const topLeftCell = grid.rows[startRow + 1].cells[startCol + 1];
+                topLeftCell.colSpan = endCol - startCol + 1;
+                topLeftCell.rowSpan = endRow - startRow + 1;
+                for (let row = startRow; row <= endRow; row++) {
+                    for (let col = startCol; col <= endCol; col++) {
+                        if (row !== startRow || col !== startCol) {
+                            const cell = grid.rows[row + 1].cells[col + 1];
+                            cell.classList.add('merged');
+                        }
+                    }
+                }
+                sheets[currentSheet].merges.push({ startRow, endRow, startCol, endCol });
+                pushUndoAction({ type: 'merge', range: { startRow, endRow, startCol, endCol } });
+            }
+        });
+
+        function getMergeRange() {
+            if (selectedCells.length === 0) return null;
+            let minRow = Infinity, maxRow = -1, minCol = Infinity, maxCol = -1;
             selectedCells.forEach(cell => {
-                const key = getCellKey(cell);
-                const data = sheets[currentSheet].data[key] || { style: {} };
-                data.format = format;
+                const row = parseInt(cell.dataset.row);
+                const col = parseInt(cell.dataset.col);
+                minRow = Math.min(minRow, row);
+                maxRow = Math.max(maxRow, row);
+                minCol = Math.min(minCol, col);
+                maxCol = Math.max(maxCol, col);
+            });
+            return { startRow: minRow, endRow: maxRow, startCol: minCol, endCol: maxCol };
+        }
+
+        function applyMerges() {
+            sheets[currentSheet].merges.forEach(merge => {
+                const { startRow, endRow, startCol, endCol } = merge;
+                const topLeftCell = grid.rows[startRow + 1].cells[startCol + 1];
+                topLeftCell.colSpan = endCol - startCol + 1;
+                topLeftCell.rowSpan = endRow - startRow + 1;
+                for (let row = startRow; row <= endRow; row++) {
+                    for (let col = startCol; col <= endCol; col++) {
+                        if (row !== startRow || col !== startCol) {
+                            const cell = grid.rows[row + 1].cells[col + 1];
+                            cell.classList.add('merged');
+                        }
+                    }
+                }
+            });
+        }
+
+        // Undo and Redo
+        function pushUndoAction(action) {
+            if (sheets[currentSheet].undoStack.length >= maxUndoSteps) {
+                sheets[currentSheet].undoStack.shift();
+            }
+            sheets[currentSheet].undoStack.push(action);
+            sheets[currentSheet].redoStack = [];
+        }
+
+        function undo() {
+            const action = sheets[currentSheet].undoStack.pop();
+            if (!action) return;
+            if (action.type === 'edit') {
+                const { key, oldData } = action;
+                sheets[currentSheet].data[key] = oldData;
+                const cell = getCellByKey(key);
                 updateCellDisplay(cell);
-            });
+            } else if (action.type === 'style') {
+                action.forEach(a => {
+                    const { key, property, oldValue } = a;
+                    const data = sheets[currentSheet].data[key];
+                    data.style[property] = oldValue;
+                    const cell = getCellByKey(key);
+                    cell.style[property] = oldValue;
+                });
+            } else if (action.type === 'merge') {
+                const { range } = action;
+                const { startRow, endRow, startCol, endCol } = range;
+                const topLeftCell = grid.rows[startRow + 1].cells[startCol + 1];
+                topLeftCell.colSpan = 1;
+                topLeftCell.rowSpan = 1;
+                for (let row = startRow; row <= endRow; row++) {
+                    for (let col = startCol; col <= endCol; col++) {
+                        const cell = grid.rows[row + 1].cells[col + 1];
+                        cell.classList.remove('merged');
+                    }
+                }
+                sheets[currentSheet].merges = sheets[currentSheet].merges.filter(m => m !== range);
+            }
+            sheets[currentSheet].redoStack.push(action);
+            initGrid(currentSheet); // Refresh grid to reflect changes
+        }
+
+        function redo() {
+            const action = sheets[currentSheet].redoStack.pop();
+            if (!action) return;
+            if (action.type === 'edit') {
+                const { key } = action;
+                const cell = getCellByKey(key);
+                const content = cell.textContent.trim();
+                const data = { style: { ...cell.style }, format: sheets[currentSheet].data[key]?.format || 'general' };
+                if (content.startsWith('=')) {
+                    data.formula = content;
+                    data.value = evaluateFormula(content.slice(1), key);
+                } else {
+                    delete data.formula;
+                    data.value = isNaN(content) ? content : parseFloat(content);
+                }
+                sheets[currentSheet].data[key] = data;
+                updateCellDisplay(cell);
+            } else if (action.type === 'style') {
+                action.forEach(a => {
+                    const { key, property } = a;
+                    const data = sheets[currentSheet].data[key];
+                    const cell = getCellByKey(key);
+                    cell.style[property] = data.style[property];
+                });
+            } else if (action.type === 'merge') {
+                const { range } = action;
+                sheets[currentSheet].merges.push(range);
+                applyMerges();
+            }
+            sheets[currentSheet].undoStack.push(action);
+            initGrid(currentSheet); // Refresh grid to reflect changes
+        }
+
+        document.getElementById('undo').addEventListener('click', undo);
+        document.getElementById('redo').addEventListener('click', redo);
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey) {
+                if (e.key === 'z') {
+                    e.preventDefault();
+                    undo();
+                } else if (e.key === 'y') {
+                    e.preventDefault();
+                    redo();
+                } else if (e.key === 'c') {
+                    e.preventDefault();
+                    copySelected();
+                } else if (e.key === 'v') {
+                    e.preventDefault();
+                    pasteSelected();
+                }
+            }
         });
 
-        // Clipboard operations
-        document.getElementById('cut').addEventListener('click', () => {
-            clipboard = selectedCells.map(cell => ({
-                key: getCellKey(cell),
-                data: { ...sheets[currentSheet].data[getCellKey(cell)] }
-            }));
-            selectedCells.forEach(cell => {
-                const key = getCellKey(cell);
-                delete sheets[currentSheet].data[key];
-                cell.textContent = '';
-                cell.style = {};
-            });
-        });
+        function copySelected() {
+            if (selectedCells.length > 0) {
+                clipboard = selectedCells.map(cell => ({
+                    key: getCellKey(cell),
+                    data: { ...sheets[currentSheet].data[getCellKey(cell)] }
+                }));
+            }
+        }
 
-        document.getElementById('copy').addEventListener('click', () => {
-            clipboard = selectedCells.map(cell => ({
-                key: getCellKey(cell),
-                data: { ...sheets[currentSheet].data[getCellKey(cell)] }
-            }));
-        });
-
-        document.getElementById('paste').addEventListener('click', () => {
+        function pasteSelected() {
             if (clipboard && selectedCells.length > 0) {
                 const baseRow = parseInt(selectedCells[0].dataset.row);
                 const baseCol = parseInt(selectedCells[0].dataset.col);
@@ -586,180 +745,148 @@
                     }
                 });
             }
-        });
-
-        // Insert operations
-        document.getElementById('add-row').addEventListener('click', () => {
-            const rowIndex = selectedCells.length > 0 ? parseInt(selectedCells[0].dataset.row) : 0;
-            sheets[currentSheet].rows++;
-            const newRow = grid.insertRow(rowIndex + 1);
-            newRow.insertCell().textContent = rowIndex + 1;
-            for (let j = 0; j < sheets[currentSheet].cols; j++) {
-                const cell = newRow.insertCell();
-                cell.contentEditable = true;
-                cell.dataset.row = rowIndex;
-                cell.dataset.col = j;
-            }
-            for (let i = rowIndex + 1; i < sheets[currentSheet].rows; i++) {
-                const row = grid.rows[i + 1];
-                row.cells[0].textContent = i + 1;
-                for (let j = 1; j < row.cells.length; j++) {
-                    row.cells[j].dataset.row = i;
-                }
-            }
-            applyFrozenPanes();
-        });
-
-        document.getElementById('add-col').addEventListener('click', () => {
-            const colIndex = selectedCells.length > 0 ? parseInt(selectedCells[0].dataset.col) : 0;
-            sheets[currentSheet].cols++;
-            grid.rows[0].insertCell(colIndex + 1).textContent = String.fromCharCode(65 + colIndex);
-            for (let i = 1; i <= sheets[currentSheet].rows; i++) {
-                const cell = grid.rows[i].insertCell(colIndex + 1);
-                cell.contentEditable = true;
-                cell.dataset.row = i - 1;
-                cell.dataset.col = colIndex;
-            }
-            for (let j = colIndex + 1; j < sheets[currentSheet].cols; j++) {
-                grid.rows[0].cells[j + 1].textContent = String.fromCharCode(65 + j);
-                for (let i = 1; i <= sheets[currentSheet].rows; i++) {
-                    grid.rows[i].cells[j + 1].dataset.col = j;
-                }
-            }
-            applyFrozenPanes();
-        });
-
-        // View options
-        document.getElementById('freeze-row').addEventListener('click', () => {
-            frozenRows = frozenRows === 1 ? 0 : 1;
-            applyFrozenPanes();
-        });
-
-        document.getElementById('freeze-col').addEventListener('click', () => {
-            frozenCols = frozenCols === 1 ? 0 : 1;
-            applyFrozenPanes();
-        });
-
-        function applyFrozenPanes() {
-            grid.querySelectorAll('.frozen-row, .frozen-col').forEach(cell => {
-                cell.classList.remove('frozen-row', 'frozen-col');
-                cell.style.position = '';
-                cell.style.top = '';
-                cell.style.left = '';
-            });
-            if (frozenRows > 0) {
-                for (let j = 0; j <= sheets[currentSheet].cols; j++) {
-                    const cell = grid.rows[1].cells[j];
-                    cell.classList.add('frozen-row');
-                }
-            }
-            if (frozenCols > 0) {
-                for (let i = 0; i <= sheets[currentSheet].rows; i++) {
-                    const cell = grid.rows[i].cells[1];
-                    cell.classList.add('frozen-col');
-                }
-            }
         }
 
-        document.getElementById('dark-mode').addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-        });
-
-        // Conditional formatting
-        document.getElementById('conditional-format').addEventListener('click', () => {
-            document.getElementById('conditional-format-dialog').showModal();
-        });
-
-        document.getElementById('conditional-format-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const rule = {
-                range: getSelectedRange(),
-                condition: document.getElementById('rule-type').value,
-                value: document.getElementById('rule-value').value,
-                style: {
-                    backgroundColor: document.getElementById('rule-bg-color').value,
-                    color: document.getElementById('rule-text-color').value
-                }
-            };
-            sheets[currentSheet].conditionalFormats.push(rule);
-            applyConditionalFormattingToRange(rule.range);
-            document.getElementById('conditional-format-dialog').close();
-        });
-
-        document.getElementById('close-dialog').addEventListener('click', () => {
-            document.getElementById('conditional-format-dialog').close();
-        });
-
-        function getSelectedRange() {
-            if (selectedCells.length === 0) return 'A1';
-            const startRow = Math.min(...selectedCells.map(c => parseInt(c.dataset.row)));
-            const endRow = Math.max(...selectedCells.map(c => parseInt(c.dataset.row)));
-            const startCol = Math.min(...selectedCells.map(c => parseInt(c.dataset.col)));
-            const endCol = Math.max(...selectedCells.map(c => parseInt(c.dataset.col)));
-            return `${String.fromCharCode(65 + startCol)}${startRow + 1}:${String.fromCharCode(65 + endCol)}${endRow + 1}`;
-        }
-
-        function applyConditionalFormatting(cell) {
-            const key = getCellKey(cell);
-            const data = sheets[currentSheet].data[key] || {};
-            sheets[currentSheet].conditionalFormats.forEach(rule => {
-                const [start, end] = rule.range.split(':');
-                const startCol = start.charCodeAt(0) - 65;
-                const startRow = parseInt(start.slice(1)) - 1;
-                const endCol = end.charCodeAt(0) - 65;
-                const endRow = parseInt(end.slice(1)) - 1;
-                const row = parseInt(cell.dataset.row);
-                const col = parseInt(cell.dataset.col);
-                if (row >= startRow && row <= endRow && col >= startCol && col <= endCol) {
-                    const value = data.value || cell.textContent;
-                    if (checkCondition(value, rule.condition, rule.value)) {
-                        Object.assign(cell.style, rule.style);
-                    }
-                }
-            });
-        }
-
-        function applyConditionalFormattingToRange(range) {
-            const [start, end] = range.split(':');
-            const startCol = start.charCodeAt(0) - 65;
-            const startRow = parseInt(start.slice(1)) - 1;
-            const endCol = end.charCodeAt(0) - 65;
-            const endRow = parseInt(end.slice(1)) - 1;
-            for (let row = startRow; row <= endRow; row++) {
-                for (let col = startCol; col <= endCol; col++) {
-                    const cell = grid.rows[row + 1].cells[col + 1];
+        // Data Validation
+        document.getElementById('apply-validation').addEventListener('click', () => {
+            const type = document.getElementById('validation-type').value;
+            const rule = document.getElementById('validation-rule').value.trim();
+            if (type === 'none') {
+                selectedCells.forEach(cell => {
+                    const key = getCellKey(cell);
+                    delete sheets[currentSheet].validations[key];
                     updateCellDisplay(cell);
+                });
+            } else if (rule) {
+                selectedCells.forEach(cell => {
+                    const key = getCellKey(cell);
+                    sheets[currentSheet].validations[key] = { type, rule };
+                    updateCellDisplay(cell);
+                });
+            }
+            pushUndoAction({ type: 'validation', cells: selectedCells.map(cell => getCellKey(cell)) });
+        });
+
+        function applyValidationAttributes(cell) {
+            const key = getCellKey(cell);
+            const validation = sheets[currentSheet].validations[key];
+            if (validation) {
+                if (validation.type === 'list') {
+                    const options = validation.rule.split(',').map(opt => opt.trim());
+                    cell.innerHTML = `<select>${options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}</select>`;
+                    cell.querySelector('select').addEventListener('change', (e) => {
+                        cell.textContent = e.target.value;
+                        cell.blur();
+                    });
+                } else {
+                    cell.innerHTML = cell.textContent; // Reset to editable
                 }
             }
         }
 
-        function checkCondition(value, condition, ruleValue) {
-            const numValue = parseFloat(value);
-            const numRuleValue = parseFloat(ruleValue);
-            switch (condition) {
-                case 'greaterThan': return !isNaN(numValue) && numValue > numRuleValue;
-                case 'lessThan': return !isNaN(numValue) && numValue < numRuleValue;
-                case 'equalTo': return value == ruleValue;
-                case 'contains': return String(value).includes(ruleValue);
-                default: return false;
+        function validateCellInput(key, value) {
+            const validation = sheets[currentSheet].validations[key];
+            if (!validation) return true;
+            if (validation.type === 'number-range') {
+                const [min, max] = validation.rule.split('-').map(Number);
+                const num = parseFloat(value);
+                return !isNaN(num) && num >= min && num <= max;
+            } else if (validation.type === 'list') {
+                const options = validation.rule.split(',').map(opt => opt.trim());
+                return options.includes(value);
             }
+            return true;
         }
+
+        // Sorting
+        document.getElementById('sort-asc').addEventListener('click', () => sortColumn(true));
+        document.getElementById('sort-desc').addEventListener('click', () => sortColumn(false));
+
+        function sortColumn(ascending) {
+            if (selectedCells.length === 0) return;
+            const col = parseInt(selectedCells[0].dataset.col);
+            const dataArray = [];
+            for (let row = 0; row < sheets[currentSheet].rows; row++) {
+                const key = `${String.fromCharCode(65 + col)}${row + 1}`;
+                const data = sheets[currentSheet].data[key];
+                dataArray.push({ key, value: data ? (data.value || data.formula || '') : '' });
+            }
+            dataArray.sort((a, b) => {
+                const valA = isNaN(a.value) ? a.value : parseFloat(a.value);
+                const valB = isNaN(b.value) ? b.value : parseFloat(b.value);
+                return ascending ? (valA < valB ? -1 : 1) : (valA > valB ? -1 : 1);
+            });
+            const oldData = { ...sheets[currentSheet].data };
+            dataArray.forEach((item, index) => {
+                const newKey = `${String.fromCharCode(65 + col)}${index + 1}`;
+                if (item.value) {
+                    sheets[currentSheet].data[newKey] = oldData[item.key] || { value: item.value };
+                    delete sheets[currentSheet].data[item.key];
+                }
+            });
+            pushUndoAction({ type: 'sort', oldData });
+            initGrid(currentSheet);
+        }
+
+        // Export and Import
+        document.getElementById('export-csv').addEventListener('click', () => {
+            let csv = '';
+            for (let row = 0; row < sheets[currentSheet].rows; row++) {
+                const rowData = [];
+                for (let col = 0; col < sheets[currentSheet].cols; col++) {
+                    const key = `${String.fromCharCode(65 + col)}${row + 1}`;
+                    const data = sheets[currentSheet].data[key];
+                    rowData.push(data ? `"${data.formula || data.value || ''}"` : '');
+                }
+                csv += rowData.join(',') + '\n';
+            }
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'spreadsheet.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('import-btn').addEventListener('click', () => {
+            document.getElementById('import-csv').click();
+        });
+
+        document.getElementById('import-csv').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const csv = event.target.result;
+                    const lines = csv.split('\n');
+                    const oldData = { ...sheets[currentSheet].data };
+                    sheets[currentSheet].data = {};
+                    lines.forEach((line, row) => {
+                        const cells = line.split(',').map(cell => cell.replace(/^"|"$/g, ''));
+                        cells.forEach((value, col) => {
+                            if (value && row < sheets[currentSheet].rows && col < sheets[currentSheet].cols) {
+                                const key = `${String.fromCharCode(65 + col)}${row + 1}`;
+                                sheets[currentSheet].data[key] = { value };
+                            }
+                        });
+                    });
+                    pushUndoAction({ type: 'import', oldData });
+                    initGrid(currentSheet);
+                };
+                reader.readAsText(file);
+            }
+        });
 
         // Helper functions
         function getCellKey(cell) {
             return `${String.fromCharCode(65 + parseInt(cell.dataset.col))}${parseInt(cell.dataset.row) + 1}`;
         }
 
-        function formatValue(value, format) {
-            if (typeof value === 'number' && !isNaN(value)) {
-                switch (format) {
-                    case 'currency': return '$' + value.toFixed(2);
-                    case 'percentage': return (value * 100).toFixed(2) + '%';
-                    case 'number': return value.toFixed(2);
-                    default: return value.toString();
-                }
-            }
-            return value || '';
+        function getCellByKey(key) {
+            const col = key.charCodeAt(0) - 65;
+            const row = parseInt(key.slice(1)) - 1;
+            return grid.rows[row + 1].cells[col + 1];
         }
 
         function evaluateFormula(formula, cellKey) {
@@ -781,7 +908,6 @@
                     }
                     return sum;
                 }
-                // Add more functions as needed
                 return eval(formula.replace(/[A-Z]\d+/g, match => {
                     const data = sheets[currentSheet].data[match];
                     return data ? (data.value || 0) : 0;
